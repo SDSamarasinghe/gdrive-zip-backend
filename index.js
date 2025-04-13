@@ -5,6 +5,7 @@ const axios = require("axios");
 const fs = require("fs");
 const archiver = require("archiver");
 const path = require("path");
+const rateLimit = require("express-rate-limit"); // Import rate limiter
 
 const app = express();
 const PORT = process.env.PORT || 5004;
@@ -17,11 +18,10 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });
 
-// Define allowed origins
-const allowedOrigins = [
-  "http://localhost:5173", // Local development
-  "https://gdrive-zip-frontend.netlify.app", // Production frontend
-];
+// Define allowed origins dynamically from environment variables
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : ["http://localhost:5173", "https://gdrive-zip-frontend.netlify.app"];
 
 // Configure CORS dynamically
 app.use(
@@ -38,15 +38,30 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // Limit request body size to 10MB
+
+// Apply rate limiter middleware
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+  message: "Too many requests from this IP, please try again later.",
+});
+app.use(limiter);
 
 app.post("/download-zip", async (req, res) => {
   console.log("Received request:", req.body.urls);
 
   const { urls } = req.body;
 
-  if (!urls || !Array.isArray(urls)) {
-    return res.status(400).json({ error: "Invalid request" });
+  // Validate URLs
+  if (
+    !urls ||
+    !Array.isArray(urls) ||
+    !urls.every((url) => url.startsWith("https://drive.google.com/"))
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Invalid Google Drive URLs provided." });
   }
 
   const tempDir = path.join(__dirname, "temp");
@@ -80,6 +95,7 @@ app.post("/download-zip", async (req, res) => {
 
       const response = await axios.get(finalUrl, {
         responseType: "arraybuffer",
+        timeout: 10000, // 10 seconds timeout
       });
 
       let fileName = `file${i + 1}`;
@@ -125,6 +141,13 @@ async function resolveRedirect(redirectUrl) {
     return redirectUrl;
   }
 }
+
+// Graceful shutdown handling
+process.on("SIGINT", () => {
+  console.log("Shutting down server...");
+  fs.rmSync(path.join(__dirname, "temp"), { recursive: true, force: true });
+  process.exit();
+});
 
 app
   .listen(PORT, () => {
