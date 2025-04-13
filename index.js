@@ -17,10 +17,24 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });
 
+// Define allowed origins
+const allowedOrigins = [
+  "http://localhost:5173", // Local development
+  "https://gdrive-zip-frontend.netlify.app", // Production frontend
+];
+
+// Configure CORS dynamically
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     methods: ["GET", "POST"],
+    credentials: true, // Allow cookies if needed
   })
 );
 
