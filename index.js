@@ -63,7 +63,6 @@ app.post("/download-zip", async (req, res) => {
   for (const [i, url] of urls.entries()) {
     try {
       const finalUrl = await resolveRedirect(url);
-      console.log("Resolved URL:", finalUrl);
 
       const response = await axios.get(finalUrl, {
         responseType: "arraybuffer",
