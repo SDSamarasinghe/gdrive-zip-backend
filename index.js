@@ -5,10 +5,21 @@ const axios = require("axios");
 const fs = require("fs");
 const archiver = require("archiver");
 const path = require("path");
-const rateLimit = require("express-rate-limit"); // Import rate limiter
+const rateLimit = require("express-rate-limit");
+const mongoose = require("mongoose");
+const Link = require("./models/Link");
 
 const app = express();
 const PORT = process.env.PORT || 5004;
+
+// Connect to MongoDB
+mongoose
+  .connect(process.env.MONGO_DB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("Error connecting to MongoDB:", err));
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
@@ -62,6 +73,16 @@ app.post("/download-zip", async (req, res) => {
     return res
       .status(400)
       .json({ error: "Invalid Google Drive URLs provided." });
+  }
+
+  // Save URLs to MongoDB
+  try {
+    const linkDocuments = urls.map((url) => ({ url }));
+    await Link.insertMany(linkDocuments);
+    console.log("Links saved to MongoDB");
+  } catch (err) {
+    console.error("Error saving links to MongoDB:", err.message);
+    return res.status(500).json({ error: "Failed to save links to database" });
   }
 
   const tempDir = path.join(__dirname, "temp");
@@ -146,7 +167,10 @@ async function resolveRedirect(redirectUrl) {
 process.on("SIGINT", () => {
   console.log("Shutting down server...");
   fs.rmSync(path.join(__dirname, "temp"), { recursive: true, force: true });
-  process.exit();
+  mongoose.connection.close(() => {
+    console.log("MongoDB connection closed.");
+    process.exit();
+  });
 });
 
 app
